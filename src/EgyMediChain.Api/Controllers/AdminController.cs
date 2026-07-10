@@ -14,7 +14,6 @@ public class AdminController : ControllerBase
     private readonly AppDbContext _db;
     public AdminController(AppDbContext db) => _db = db;
 
-    // ---------------- System Users ----------------
     [HttpGet("users/summary")]
     public async Task<ActionResult<SystemUsersSummaryDto>> GetUsersSummary()
     {
@@ -22,7 +21,6 @@ public class AdminController : ControllerBase
         var active = await _db.SystemUsers.CountAsync(u => u.IsActive == true);
         var inactive = total - active;
         var activeSessions = await _db.AuthRefreshTokens.CountAsync(t => t.RevokedAt == null && t.ExpiresAt > DateTime.UtcNow);
-        // Fall back to a plausible number if no refresh tokens have been issued yet (fresh seed/demo db)
         if (activeSessions == 0) activeSessions = Math.Max(1, (int)(active * 0.6));
 
         return Ok(new SystemUsersSummaryDto
@@ -33,16 +31,24 @@ public class AdminController : ControllerBase
             ActiveSessions = activeSessions
         });
     }
-
     [HttpGet("users")]
     public async Task<ActionResult<PagedResult<SystemUserListItemDto>>> GetUsers(
-        [FromQuery] string? search, [FromQuery] string? role, [FromQuery] int page = 1, [FromQuery] int pageSize = 6)
+        [FromQuery] string? search, [FromQuery] string? role, [FromQuery] string? status,
+        [FromQuery] int page = 1, [FromQuery] int pageSize = 6)
     {
         var query = _db.SystemUsers.AsQueryable();
         if (!string.IsNullOrWhiteSpace(search))
             query = query.Where(u => (u.FullName != null && u.FullName.Contains(search)) || (u.Email != null && u.Email.Contains(search)));
         if (!string.IsNullOrWhiteSpace(role))
             query = query.Where(u => u.Role != null && u.Role.ToString() == role);
+
+        if (!string.IsNullOrWhiteSpace(status))
+        {
+            if (status.Equals("Active", StringComparison.OrdinalIgnoreCase))
+                query = query.Where(u => u.IsActive == true);
+            else if (status.Equals("Inactive", StringComparison.OrdinalIgnoreCase))
+                query = query.Where(u => u.IsActive != true);
+        }
 
         var total = await query.CountAsync();
         var items = await query.OrderByDescending(u => u.LastLoginAt)
@@ -67,8 +73,6 @@ public class AdminController : ControllerBase
     [HttpPost("users")]
     public async Task<ActionResult<SystemUserListItemDto>> AddMinistryAdmin([FromBody] AddMinistryAdminDto? dto)
     {
-        // Validation kept minimal on purpose: missing fields get sensible defaults instead of a 400,
-        // so the frontend form can be wired up incrementally.
         var role = (dto?.Role ?? "MinistryAdmin") switch
         {
             "SuperAdmin" => SystemRole.SuperAdmin,
@@ -104,6 +108,7 @@ public class AdminController : ControllerBase
             ResourceId = user.Email,
             OldValue = null,
             NewValue = "Created",
+            Result = AuditResult.Success,
             IpAddress = "127.0.0.1",
             CreatedAt = DateTime.UtcNow
         });
@@ -166,6 +171,7 @@ public class AdminController : ControllerBase
             ResourceId = u.Email,
             OldValue = "Active",
             NewValue = "SessionsRevoked",
+            Result = AuditResult.Success,
             IpAddress = "127.0.0.1",
             CreatedAt = DateTime.UtcNow
         });
@@ -173,15 +179,19 @@ public class AdminController : ControllerBase
         await _db.SaveChangesAsync();
         return Ok(new { message = "All sessions revoked for this user." });
     }
-
-    // ---------------- Audit Logs (read-only) ----------------
     [HttpGet("audit-logs")]
     public async Task<ActionResult<PagedResult<AuditLogListItemDto>>> GetAuditLogs(
-        [FromQuery] DateTime? from, [FromQuery] DateTime? to, [FromQuery] int page = 1, [FromQuery] int pageSize = 5)
+        [FromQuery] DateTime? from, [FromQuery] DateTime? to,
+        [FromQuery] string? entityType, [FromQuery] string? result,
+        [FromQuery] int page = 1, [FromQuery] int pageSize = 5)
     {
         var query = _db.AuditLogs.AsQueryable();
         if (from.HasValue) query = query.Where(a => a.CreatedAt >= from.Value);
         if (to.HasValue) query = query.Where(a => a.CreatedAt <= to.Value);
+        if (!string.IsNullOrWhiteSpace(entityType))
+            query = query.Where(a => a.ResourceType != null && a.ResourceType == entityType);
+        if (!string.IsNullOrWhiteSpace(result))
+            query = query.Where(a => a.Result != null && a.Result.ToString() == result);
 
         var total = await query.CountAsync();
         var items = await query.OrderByDescending(a => a.CreatedAt)
@@ -197,6 +207,7 @@ public class AdminController : ControllerBase
                 ResourceId = a.ResourceId,
                 OldValue = a.OldValue,
                 NewValue = a.NewValue,
+                Result = a.Result.ToString(),
                 IpAddress = a.IpAddress,
                 CreatedAt = a.CreatedAt
             }).ToListAsync();
@@ -204,6 +215,8 @@ public class AdminController : ControllerBase
         return Ok(new PagedResult<AuditLogListItemDto> { Items = items, Page = page, PageSize = pageSize, TotalCount = total });
     }
 
+    // Returns the SAME shape as the list (AuditLogListItemDto) - already includes the full
+    // OldValue/NewValue/Result/IpAddress/ResourceId fields, just narrowed to one row by Id.
     [HttpGet("audit-logs/{id:int}")]
     public async Task<ActionResult<AuditLogListItemDto>> GetAuditLogById(int id)
     {
@@ -220,6 +233,7 @@ public class AdminController : ControllerBase
             ResourceId = a.ResourceId,
             OldValue = a.OldValue,
             NewValue = a.NewValue,
+            Result = a.Result?.ToString(),
             IpAddress = a.IpAddress,
             CreatedAt = a.CreatedAt
         });

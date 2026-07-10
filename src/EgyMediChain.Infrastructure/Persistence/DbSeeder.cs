@@ -970,6 +970,12 @@ public static class DbSeeder
         var resourceTypes = new[] { "Batch", "Factory", "Warehouse", "Pharmacy", "EntityDocument", "RegistrationRequest", "SystemUser", "Alert" };
         var oldVals = new[] { "Active", "Pending", "Under Review", "In Supply Chain" };
         var newVals = new[] { "Suspended", "Approved", "Quarantined", "Recalled", "Rejected" };
+        var results = new[]
+        {
+            AuditResult.Success, AuditResult.Success, AuditResult.Success, AuditResult.Success,
+            AuditResult.Success, AuditResult.Success, AuditResult.Success, AuditResult.Success,
+            AuditResult.Warning, AuditResult.Failed
+        };
         for (int i = 0; i < 120; i++)
         {
             var user = users[Rng.Next(users.Count)];
@@ -985,6 +991,7 @@ public static class DbSeeder
                 ResourceId = $"{resourceTypes[Rng.Next(resourceTypes.Length)].ToUpper().Substring(0, 3)}-2024-{Rng.Next(1, 999):000}",
                 OldValue = oldVals[Rng.Next(oldVals.Length)],
                 NewValue = newVals[Rng.Next(newVals.Length)],
+                Result = results[Rng.Next(results.Length)],
                 IpAddress = $"{Rng.Next(41, 197)}.{Rng.Next(1, 255)}.{Rng.Next(1, 255)}.{Rng.Next(1, 255)}",
                 CreatedAt = RandDate(0, 60)
             });

@@ -594,6 +594,7 @@ public class AuditLogListItemDto
     public string? ResourceId { get; set; }
     public string? OldValue { get; set; }
     public string? NewValue { get; set; }
+    public string? Result { get; set; }
     public string? IpAddress { get; set; }
     public DateTime? CreatedAt { get; set; }
 }

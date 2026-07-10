@@ -154,7 +154,12 @@ public enum VerificationResult
     Blocked,
     Suspicious
 }
-
+public enum AuditResult
+{
+    Success,
+    Failed,
+    Warning
+}
 public enum AuditAction
 {
     ApproveRegistration,

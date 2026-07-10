@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+This file is used by the publish/package process of your Web project. You can customize the behavior of this process
+by editing this MSBuild file. In order to learn more about this please visit https://go.microsoft.com/fwlink/?LinkID=208121. 
+-->
+<Project>
+  <PropertyGroup>
+    <TimeStampOfAssociatedLegacyPublishXmlFile />
+    <EncryptedPassword>AQAAANCMnd8BFdERjHoAwE/Cl+sBAAAAxKK373T5HUC1d1V/UdxLxAAAAAACAAAAAAAQZgAAAAEAACAAAADF+TZTAXZzlEaxLYYuVcmNxnF6D76+8DRjp/7JZYsPfQAAAAAOgAAAAAIAACAAAAAiSnk0JcJ07L/73O58QkpubGclk38xoAYqyHGE6IlxCSAAAABebkxVXwDVONPj2g8nDFUY2JS7y//pBSNCZiQLfdW6kUAAAAAMaO1zajki52LvcdQgJuZZtK/M2kJcQtewAoaXzcAMxZmcPm/cxm7g7eFpaVYiIkakuZqHohR0aXVmarkhkh1s</EncryptedPassword>
+    <History>True|2026-07-10T09:50:32.1646511Z||;True|2026-07-10T11:41:42.9935051+03:00||;</History>
+    <LastFailureDetails />
+  </PropertyGroup>
+  <ItemGroup>
+    <DestinationConnectionStrings Include="Default">
+      <Value>Server=db59143.databaseasp.net%3bDatabase=db59143%3bUser Id=db59143%3bPassword=H-x9hW2%3f%40eR7%3bEncrypt=False%3bMultipleActiveResultSets=True%3bTrustServerCertificate=True</Value>
+    </DestinationConnectionStrings>
+  </ItemGroup>
+</Project>

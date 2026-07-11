@@ -3,12 +3,14 @@ using EgyMediChain.Domain.Entities;
 using EgyMediChain.Domain.Enums;
 using EgyMediChain.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.EntityFrameworkCore;
 
 namespace EgyMediChain.Api.Controllers;
 
 [ApiController]
 [Route("api/admin")]
+[Authorize(Roles = "SuperAdmin,MinistryAdmin")]
 public class AdminController : ControllerBase
 {
     private readonly AppDbContext _db;

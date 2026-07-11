@@ -3,12 +3,14 @@ using EgyMediChain.Domain.Entities;
 using EgyMediChain.Domain.Enums;
 using EgyMediChain.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.EntityFrameworkCore;
 
 namespace EgyMediChain.Api.Controllers;
 
 [ApiController]
 [Route("api/batches")]
+[Authorize(Roles = "FactoryUser,SuperAdmin,MinistryAdmin")]
 public class BatchesController : ControllerBase
 {
     private readonly AppDbContext _db;
@@ -247,3 +249,4 @@ public class BatchesController : ControllerBase
         return Ok(new { message = "Recall alert created.", status = "Recalled" });
     }
 }
+

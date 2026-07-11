@@ -3,6 +3,7 @@ using EgyMediChain.Domain.Entities;
 using EgyMediChain.Domain.Enums;
 using EgyMediChain.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.EntityFrameworkCore;
 
 namespace EgyMediChain.Api.Controllers;
@@ -12,6 +13,7 @@ namespace EgyMediChain.Api.Controllers;
 // "keep it simple, low-friction" style - the frontend gets {factoryId} back from /api/auth/login.
 [ApiController]
 [Route("api/factory-dashboard/{factoryId:int}")]
+[Authorize(Roles = "FactoryUser,SuperAdmin,MinistryAdmin")]
 public class FactoryDashboardController : ControllerBase
 {
     private readonly AppDbContext _db;
@@ -633,3 +635,4 @@ public class FactoryDashboardController : ControllerBase
         CreatedAt = DateTime.UtcNow
     };
 }
+

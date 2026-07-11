@@ -2,6 +2,7 @@ using EgyMediChain.Api.Dtos;
 using EgyMediChain.Domain.Entities;
 using EgyMediChain.Domain.Enums;
 using EgyMediChain.Infrastructure.Persistence;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 
@@ -9,10 +10,192 @@ namespace EgyMediChain.Api.Controllers;
 
 [ApiController]
 [Route("api/registration-requests")]
+[Authorize(Roles = "SuperAdmin,MinistryAdmin,MinistryViewer")]
 public class RegistrationRequestsController : ControllerBase
 {
     private readonly AppDbContext _db;
     public RegistrationRequestsController(AppDbContext db) => _db = db;
+
+    // Public wizard submission (Pharmacy/Warehouse/Factory registration) - no auth required.
+    // This is the endpoint the "Submit Request" button on the registration wizard should call.
+    [AllowAnonymous]
+    [HttpPost]
+    [Consumes("multipart/form-data")]
+    [RequestSizeLimit(50_000_000)]
+    public async Task<ActionResult<object>> Submit(
+        [FromForm] SubmitRegistrationRequestDto dto,
+        [FromForm] List<IFormFile>? documents,
+        [FromForm] List<string>? documentTypes)
+    {
+        if (dto == null || string.IsNullOrWhiteSpace(dto.Email) || string.IsNullOrWhiteSpace(dto.EntityType))
+            return BadRequest(new { message = "Missing required fields." });
+
+        if (!dto.ConfirmInfoCorrect || !dto.AgreeToInspection)
+            return BadRequest(new { message = "You must accept both declarations before submitting." });
+
+        if (await _db.SystemUsers.AnyAsync(u => u.Email == dto.Email))
+            return Conflict(new { message = "An account with this email already exists." });
+
+        EntityKind? entityKind = dto.EntityType switch
+        {
+            "Factory" => EntityKind.Factory,
+            "Warehouse" => EntityKind.Warehouse,
+            "Pharmacy" => EntityKind.Pharmacy,
+            _ => null
+        };
+        if (entityKind == null) return BadRequest(new { message = "Invalid entity type." });
+
+        var user = new SystemUser
+        {
+            FullName = dto.RepresentativeName,
+            Email = dto.Email,
+            MobileNumber = dto.MobileNumber,
+            NationalId = dto.NationalId,
+            PasswordHash = BCrypt.Net.BCrypt.HashPassword(
+                string.IsNullOrWhiteSpace(dto.Password) ? Guid.NewGuid().ToString("N") : dto.Password),
+            Role = entityKind switch
+            {
+                EntityKind.Factory => SystemRole.FactoryUser,
+                EntityKind.Warehouse => SystemRole.WarehouseUser,
+                _ => SystemRole.PharmacyUser
+            },
+            EntityType = entityKind,
+            EmailConfirmed = false,
+            IsActive = false,
+            CreatedAt = DateTime.UtcNow
+        };
+        _db.SystemUsers.Add(user);
+
+        Factory? factory = null; Warehouse? warehouse = null; Pharmacy? pharmacy = null;
+        string? entityName = null;
+
+        if (entityKind == EntityKind.Factory)
+        {
+            factory = new Factory
+            {
+                OfficialFactoryName = dto.OfficialFactoryName,
+                LegalCompanyName = dto.LegalCompanyName,
+                DosageFormsProduced = dto.DosageFormsProduced,
+                Governorate = dto.Governorate,
+                City = dto.City,
+                DistrictArea = dto.DistrictArea,
+                FullAddress = dto.FullAddress,
+                FactoryLicenseNumber = dto.FactoryLicenseNumber,
+                TechnicalOperatingLicenseNumber = dto.TechnicalOperatingLicenseNumber,
+                CommercialRegistrationNumber = dto.CommercialRegistrationNumber,
+                TaxCardNumber = dto.TaxCardNumber,
+                LicenseIssueDate = dto.LicenseIssueDate,
+                LicenseExpiryDate = dto.LicenseExpiryDate,
+                HasQualityControlLab = dto.HasQualityControlLab,
+                HasFinishedGoodsStore = dto.HasFinishedGoodsStore,
+                HasColdStorage = dto.HasColdStorage,
+                HasQuarantineArea = dto.HasQuarantineArea,
+                FactoryStatus = FacilityStatus.PendingReview,
+                CreatedAt = DateTime.UtcNow
+            };
+            _db.Factories.Add(factory);
+            entityName = factory.OfficialFactoryName;
+        }
+        else if (entityKind == EntityKind.Warehouse)
+        {
+            warehouse = new Warehouse
+            {
+                OfficialWarehouseName = dto.OfficialWarehouseName,
+                WarehouseType = dto.WarehouseType,
+                Governorate = dto.Governorate,
+                City = dto.City,
+                DistrictArea = dto.DistrictArea,
+                FullAddress = dto.FullAddress,
+                WarehouseLicenseNumber = dto.WarehouseLicenseNumber,
+                LicenseIssueDate = dto.LicenseIssueDate,
+                LicenseExpiryDate = dto.LicenseExpiryDate,
+                HasColdStorage = dto.HasColdStorage,
+                HasQuarantineArea = dto.HasQuarantineArea,
+                HasDeliveryService = dto.HasDeliveryService,
+                WarehouseStatus = FacilityStatus.PendingReview,
+                CreatedAt = DateTime.UtcNow
+            };
+            _db.Warehouses.Add(warehouse);
+            entityName = warehouse.OfficialWarehouseName;
+        }
+        else
+        {
+            pharmacy = new Pharmacy
+            {
+                OfficialPharmacyName = dto.OfficialPharmacyName,
+                PharmacyType = dto.PharmacyType,
+                Governorate = dto.Governorate,
+                City = dto.City,
+                DistrictArea = dto.DistrictArea,
+                FullAddress = dto.FullAddress,
+                DefaultWarehouseId = dto.DefaultWarehouseId,
+                HasColdStorage = dto.HasColdStorage,
+                PharmacyLicenseNumber = dto.PharmacyLicenseNumber,
+                LicenseIssueDate = dto.LicenseIssueDate,
+                LicenseExpiryDate = dto.LicenseExpiryDate,
+                PharmacistSyndicateId = dto.PharmacistSyndicateId,
+                PharmacyStatus = FacilityStatus.PendingReview,
+                CreatedAt = DateTime.UtcNow
+            };
+            _db.Pharmacies.Add(pharmacy);
+            entityName = pharmacy.OfficialPharmacyName;
+        }
+
+        await _db.SaveChangesAsync(); // need generated Ids before linking
+
+        var requestCode = $"REQ-{DateTime.UtcNow:yyyy}-{Random.Shared.Next(1000, 9999)}";
+
+        var request = new RegistrationRequest
+        {
+            RequestCode = requestCode,
+            EntityType = entityKind,
+            EntityName = entityName,
+            RepresentativeName = dto.RepresentativeName,
+            Email = dto.Email,
+            SystemUserId = user.Id,
+            FactoryId = factory?.Id,
+            WarehouseId = warehouse?.Id,
+            PharmacyId = pharmacy?.Id,
+            SubmittedAt = DateTime.UtcNow,
+            EmailConfirmed = false,
+            RegistrationStatus = RegistrationStatus.Pending,
+            DocumentsOverallStatus = DocumentStatus.UnderReview
+        };
+        _db.RegistrationRequests.Add(request);
+        await _db.SaveChangesAsync();
+
+        if (documents != null && documents.Count > 0)
+        {
+            var uploadsRoot = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot", "uploads", requestCode);
+            Directory.CreateDirectory(uploadsRoot);
+
+            for (int i = 0; i < documents.Count; i++)
+            {
+                var file = documents[i];
+                if (file.Length == 0) continue;
+
+                var docType = documentTypes != null && i < documentTypes.Count ? documentTypes[i] : "Document";
+                var safeName = $"{Guid.NewGuid():N}_{Path.GetFileName(file.FileName)}";
+                var fullPath = Path.Combine(uploadsRoot, safeName);
+
+                await using (var stream = new FileStream(fullPath, FileMode.Create))
+                    await file.CopyToAsync(stream);
+
+                _db.EntityDocuments.Add(new EntityDocument
+                {
+                    RegistrationRequestId = request.Id,
+                    DocumentType = docType,
+                    FileName = file.FileName,
+                    FileUrl = $"/uploads/{requestCode}/{safeName}",
+                    UploadedAt = DateTime.UtcNow,
+                    DocumentStatus = DocumentStatus.UnderReview
+                });
+            }
+            await _db.SaveChangesAsync();
+        }
+
+        return Ok(new { message = "Registration request submitted successfully.", requestCode, requestId = request.Id });
+    }
 
     // status: pending | under-review | needs-more-documents | approved | rejected | cancelled | (empty = all)
     [HttpGet]

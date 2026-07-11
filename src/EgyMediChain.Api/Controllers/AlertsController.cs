@@ -3,12 +3,14 @@ using EgyMediChain.Domain.Entities;
 using EgyMediChain.Domain.Enums;
 using EgyMediChain.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.EntityFrameworkCore;
 
 namespace EgyMediChain.Api.Controllers;
 
 [ApiController]
 [Route("api/alerts")]
+[Authorize(Roles = "SuperAdmin,MinistryAdmin,MinistryViewer,FactoryUser,WarehouseUser,PharmacyUser")]
 public class AlertsController : ControllerBase
 {
     private readonly AppDbContext _db;
@@ -246,3 +248,4 @@ public class AlertsController : ControllerBase
         return Ok(new { message = "Alert created from scan.", alertCode = alert.AlertCode });
     }
 }
+

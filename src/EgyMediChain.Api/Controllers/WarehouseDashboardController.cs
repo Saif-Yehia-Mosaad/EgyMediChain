@@ -3,6 +3,7 @@ using EgyMediChain.Domain.Entities;
 using EgyMediChain.Domain.Enums;
 using EgyMediChain.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.EntityFrameworkCore;
 
 namespace EgyMediChain.Api.Controllers;
@@ -11,6 +12,7 @@ namespace EgyMediChain.Api.Controllers;
 // the route, same pattern as the Factory dashboard.
 [ApiController]
 [Route("api/warehouse-dashboard/{warehouseId:int}")]
+[Authorize(Roles = "WarehouseUser,SuperAdmin,MinistryAdmin")]
 public class WarehouseDashboardController : ControllerBase
 {
     private readonly AppDbContext _db;
@@ -607,3 +609,4 @@ public class WarehouseDashboardController : ControllerBase
         CreatedAt = DateTime.UtcNow
     };
 }
+

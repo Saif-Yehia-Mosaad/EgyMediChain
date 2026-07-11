@@ -1,8 +1,10 @@
-using System.Text;
+using EgyMediChain.Api.Common;
 using EgyMediChain.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Http.Features;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
+using System.Text;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -12,6 +14,13 @@ builder.Services.AddControllers().AddJsonOptions(o =>
     o.JsonSerializerOptions.ReferenceHandler = System.Text.Json.Serialization.ReferenceHandler.IgnoreCycles;
     o.JsonSerializerOptions.Converters.Add(new System.Text.Json.Serialization.JsonStringEnumConverter());
     o.JsonSerializerOptions.DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull;
+});
+
+// Needed so the registration wizard's "Documents Upload" step (multipart/form-data
+// with several files) doesn't get rejected for exceeding the default body size limit.
+builder.Services.Configure<FormOptions>(o =>
+{
+    o.MultipartBodyLengthLimit = 50_000_000; // 50 MB
 });
 
 builder.Services.AddEndpointsApiExplorer();
@@ -70,19 +79,17 @@ builder.Services.AddAuthentication(options =>
 
 builder.Services.AddAuthorization();
 
-var allowedOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>() ?? Array.Empty<string>();
+builder.Services.AddScoped<JwtTokenService>();
+
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("Frontend", policy =>
     {
-        // Wide-open CORS so the React frontend (any dev port) can talk to this API without friction.
-        policy.SetIsOriginAllowed(_ => true)
+        policy.AllowAnyOrigin()
               .AllowAnyHeader()
-              .AllowAnyMethod()
-              .AllowCredentials();
+              .AllowAnyMethod();
     });
 });
-
 var app = builder.Build();
 
 // ---- Migrate + Seed ----
@@ -101,6 +108,11 @@ app.UseSwagger();
 app.UseSwaggerUI(c => c.SwaggerEndpoint("/swagger/v1/swagger.json", "EgyMediChain Ministry API v1"));
 
 app.UseCors("Frontend");
+
+// Serves uploaded registration documents from wwwroot/uploads so the FileUrl values
+// returned by the API (e.g. "/uploads/REQ-2026-1234/xxx.pdf") are actually reachable.
+app.UseStaticFiles();
+
 app.UseAuthentication();
 app.UseAuthorization();
 

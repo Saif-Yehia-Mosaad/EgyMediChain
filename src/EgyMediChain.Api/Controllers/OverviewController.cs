@@ -2,12 +2,14 @@ using EgyMediChain.Api.Dtos;
 using EgyMediChain.Domain.Enums;
 using EgyMediChain.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.EntityFrameworkCore;
 
 namespace EgyMediChain.Api.Controllers;
 
 [ApiController]
 [Route("api/overview")]
+[Authorize(Roles = "SuperAdmin,MinistryAdmin,MinistryViewer")]
 public class OverviewController : ControllerBase
 {
     private readonly AppDbContext _db;
@@ -83,3 +85,4 @@ public class OverviewController : ControllerBase
         });
     }
 }
+

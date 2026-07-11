@@ -3,6 +3,7 @@ using EgyMediChain.Domain.Entities;
 using EgyMediChain.Domain.Enums;
 using EgyMediChain.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.EntityFrameworkCore;
 
 namespace EgyMediChain.Api.Controllers;
@@ -12,6 +13,7 @@ namespace EgyMediChain.Api.Controllers;
 // inventory edits - by design (see spec): the pharmacy only receives from a Warehouse and views.
 [ApiController]
 [Route("api/pharmacy-dashboard/{pharmacyId:int}")]
+[Authorize(Roles = "PharmacyUser,SuperAdmin,MinistryAdmin")]
 public class PharmacyDashboardController : ControllerBase
 {
     private readonly AppDbContext _db;
@@ -457,3 +459,4 @@ public class PharmacyDashboardController : ControllerBase
         CreatedAt = DateTime.UtcNow
     };
 }
+

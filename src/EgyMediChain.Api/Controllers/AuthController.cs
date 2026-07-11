@@ -1,6 +1,7 @@
 using EgyMediChain.Api.Common;
 using EgyMediChain.Api.Dtos;
 using EgyMediChain.Infrastructure.Persistence;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 
@@ -8,6 +9,7 @@ namespace EgyMediChain.Api.Controllers;
 
 [ApiController]
 [Route("api/auth")]
+[AllowAnonymous]
 public class AuthController : ControllerBase
 {
     private readonly AppDbContext _db;
@@ -19,30 +21,22 @@ public class AuthController : ControllerBase
         _jwt = jwt;
     }
 
-    // Validation kept intentionally light - this endpoint is meant to unblock frontend integration fast.
     [HttpPost("login")]
     public async Task<ActionResult<LoginResponseDto>> Login([FromBody] LoginRequestDto? dto)
     {
-        if (dto == null || string.IsNullOrWhiteSpace(dto.Email))
-            return Ok(await FallbackLogin()); // never hard-fail the frontend during demo/integration
+        if (dto == null || string.IsNullOrWhiteSpace(dto.Email) || string.IsNullOrWhiteSpace(dto.Password))
+            return BadRequest(new { message = "Email and password are required." });
 
         var user = await _db.SystemUsers.FirstOrDefaultAsync(u => u.Email == dto.Email);
-        if (user == null)
-            return Ok(await FallbackLogin());
+        if (user == null || string.IsNullOrEmpty(user.PasswordHash) ||
+            !BCrypt.Net.BCrypt.Verify(dto.Password, user.PasswordHash))
+            return Unauthorized(new { message = "Invalid email or password." });
 
-        // Password check is best-effort only; missing/blank passwords are accepted so the
-        // frontend can be wired up before a real credential flow is finished.
-        if (!string.IsNullOrEmpty(dto.Password) && !string.IsNullOrEmpty(user.PasswordHash))
-        {
-            try
-            {
-                if (!BCrypt.Net.BCrypt.Verify(dto.Password, user.PasswordHash))
-                {
-                    // still allow login through for integration convenience
-                }
-            }
-            catch { /* ignore malformed hash */ }
-        }
+        if (user.IsActive != true)
+            return Unauthorized(new { message = "This account is not active yet. Wait for Ministry approval." });
+
+        user.LastLoginAt = DateTime.UtcNow;
+        await _db.SaveChangesAsync();
 
         return Ok(BuildResponse(user));
     }
@@ -51,15 +45,8 @@ public class AuthController : ControllerBase
     public async Task<ActionResult<LoginResponseDto>> Refresh()
     {
         var user = await _db.SystemUsers.FirstOrDefaultAsync(u => u.Role == Domain.Enums.SystemRole.SuperAdmin);
-        if (user == null) return Ok(await FallbackLogin());
+        if (user == null) return Unauthorized(new { message = "No account available." });
         return Ok(BuildResponse(user));
-    }
-
-    private async Task<LoginResponseDto> FallbackLogin()
-    {
-        var user = await _db.SystemUsers.FirstOrDefaultAsync(u => u.Role == Domain.Enums.SystemRole.SuperAdmin)
-                   ?? await _db.SystemUsers.FirstOrDefaultAsync();
-        return user == null ? new LoginResponseDto() : BuildResponse(user);
     }
 
     private LoginResponseDto BuildResponse(Domain.Entities.SystemUser user) => new()

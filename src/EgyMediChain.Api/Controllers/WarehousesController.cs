@@ -3,12 +3,14 @@ using EgyMediChain.Domain.Entities;
 using EgyMediChain.Domain.Enums;
 using EgyMediChain.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.EntityFrameworkCore;
 
 namespace EgyMediChain.Api.Controllers;
 
 [ApiController]
 [Route("api/warehouses")]
+[Authorize(Roles = "SuperAdmin,MinistryAdmin,MinistryViewer")]
 public class WarehousesController : ControllerBase
 {
     private readonly AppDbContext _db;
@@ -172,3 +174,4 @@ public class WarehousesController : ControllerBase
         CreatedAt = DateTime.UtcNow
     };
 }
+

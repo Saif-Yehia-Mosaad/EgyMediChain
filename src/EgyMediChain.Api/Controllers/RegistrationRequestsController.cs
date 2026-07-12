@@ -204,6 +204,10 @@ public class RegistrationRequestsController : ControllerBase
     {
         var query = _db.RegistrationRequests.AsQueryable();
 
+        var scope = GetCallerEntityScope();
+        if (scope != null)
+            query = query.Where(r => r.EntityType != null && r.EntityType.ToString() == scope);
+
         if (!string.IsNullOrWhiteSpace(status))
         {
             var normalized = status.Replace("-", "").ToLower();
@@ -244,13 +248,18 @@ public class RegistrationRequestsController : ControllerBase
     [HttpGet("counts")]
     public async Task<ActionResult<object>> GetCounts()
     {
+        var scope = GetCallerEntityScope();
+        var baseQuery = _db.RegistrationRequests.AsQueryable();
+        if (scope != null)
+            baseQuery = baseQuery.Where(r => r.EntityType != null && r.EntityType.ToString() == scope);
+
         return Ok(new
         {
-            PendingReview = await _db.RegistrationRequests.CountAsync(r => r.RegistrationStatus == RegistrationStatus.Pending || r.RegistrationStatus == RegistrationStatus.UnderReview),
-            NeedsMoreDocuments = await _db.RegistrationRequests.CountAsync(r => r.RegistrationStatus == RegistrationStatus.NeedsMoreDocuments),
-            Approved = await _db.RegistrationRequests.CountAsync(r => r.RegistrationStatus == RegistrationStatus.Approved),
-            Rejected = await _db.RegistrationRequests.CountAsync(r => r.RegistrationStatus == RegistrationStatus.Rejected),
-            Cancelled = await _db.RegistrationRequests.CountAsync(r => r.RegistrationStatus == RegistrationStatus.Cancelled)
+            PendingReview = await baseQuery.CountAsync(r => r.RegistrationStatus == RegistrationStatus.Pending || r.RegistrationStatus == RegistrationStatus.UnderReview),
+            NeedsMoreDocuments = await baseQuery.CountAsync(r => r.RegistrationStatus == RegistrationStatus.NeedsMoreDocuments),
+            Approved = await baseQuery.CountAsync(r => r.RegistrationStatus == RegistrationStatus.Approved),
+            Rejected = await baseQuery.CountAsync(r => r.RegistrationStatus == RegistrationStatus.Rejected),
+            Cancelled = await baseQuery.CountAsync(r => r.RegistrationStatus == RegistrationStatus.Cancelled)
         });
     }
 
@@ -266,6 +275,7 @@ public class RegistrationRequestsController : ControllerBase
             .FirstOrDefaultAsync(x => x.Id == id);
 
         if (r == null) return NotFound(new { message = "Registration request not found." });
+        if (!IsAllowedEntityType(r.EntityType)) return Forbid403();
 
         var entity = new EntityInfoDto();
         if (r.Factory != null)
@@ -356,6 +366,7 @@ public class RegistrationRequestsController : ControllerBase
             .Include(x => x.SystemUser).Include(x => x.Documents)
             .FirstOrDefaultAsync(x => x.Id == id);
         if (r == null) return NotFound(new { message = "Registration request not found." });
+        if (!IsAllowedEntityType(r.EntityType)) return Forbid403();
 
         if (r.RegistrationStatus == RegistrationStatus.Approved)
             return BadRequest(new { message = "An approved registration is a live entity - suspend/deactivate it instead of deleting the request." });
@@ -395,6 +406,7 @@ public class RegistrationRequestsController : ControllerBase
             .Include(x => x.Factory).Include(x => x.Warehouse).Include(x => x.Pharmacy).Include(x => x.SystemUser)
             .FirstOrDefaultAsync(x => x.Id == id);
         if (r == null) return NotFound(new { message = "Registration request not found." });
+        if (!IsAllowedEntityType(r.EntityType)) return Forbid403();
 
         r.RegistrationStatus = RegistrationStatus.Approved;
         if (r.Factory != null) r.Factory.FactoryStatus = FacilityStatus.Active;
@@ -414,6 +426,7 @@ public class RegistrationRequestsController : ControllerBase
             .Include(x => x.Factory).Include(x => x.Warehouse).Include(x => x.Pharmacy).Include(x => x.SystemUser)
             .FirstOrDefaultAsync(x => x.Id == id);
         if (r == null) return NotFound(new { message = "Registration request not found." });
+        if (!IsAllowedEntityType(r.EntityType)) return Forbid403();
 
         r.RegistrationStatus = RegistrationStatus.Rejected;
         r.RejectionReason = dto?.RejectionReason ?? "Not specified";
@@ -433,6 +446,7 @@ public class RegistrationRequestsController : ControllerBase
         var r = await _db.RegistrationRequests.Include(x => x.SystemUser).Include(x => x.Documents)
             .FirstOrDefaultAsync(x => x.Id == id);
         if (r == null) return NotFound(new { message = "Registration request not found." });
+        if (!IsAllowedEntityType(r.EntityType)) return Forbid403();
 
         r.RegistrationStatus = RegistrationStatus.NeedsMoreDocuments;
         r.AdminNotes = dto?.AdminNotes;
@@ -454,8 +468,9 @@ public class RegistrationRequestsController : ControllerBase
     [HttpPost("documents/{documentId:int}/status")]
     public async Task<IActionResult> UpdateDocumentStatus(int documentId, [FromBody] DocumentStatusUpdateDto? dto)
     {
-        var doc = await _db.EntityDocuments.FirstOrDefaultAsync(d => d.Id == documentId);
+        var doc = await _db.EntityDocuments.Include(d => d.RegistrationRequest).FirstOrDefaultAsync(d => d.Id == documentId);
         if (doc == null) return NotFound(new { message = "Document not found." });
+        if (!IsAllowedEntityType(doc.RegistrationRequest?.EntityType)) return Forbid403();
 
         doc.DocumentStatus = (dto?.Status ?? "Complete") switch
         {
@@ -471,6 +486,25 @@ public class RegistrationRequestsController : ControllerBase
         await _db.SaveChangesAsync();
         return Ok(new { message = "Document status updated.", status = doc.DocumentStatus.ToString() });
     }
+
+    private string? GetCallerEntityScope()
+    {
+        var role = User.FindFirst(System.Security.Claims.ClaimTypes.Role)?.Value;
+        if (role == "SuperAdmin") return null; // unscoped
+
+        var scope = User.FindFirst("entityType")?.Value;
+        if (string.IsNullOrEmpty(scope) || scope == "Ministry") return null; // unscoped Ministry account
+        return scope; // "Factory" | "Warehouse" | "Pharmacy"
+    }
+
+    private bool IsAllowedEntityType(EntityKind? type)
+    {
+        var scope = GetCallerEntityScope();
+        if (scope == null) return true;
+        return type != null && type.ToString() == scope;
+    }
+
+    private ObjectResult Forbid403() => new(new { message = "This account's Ministry scope doesn't include this entity type." }) { StatusCode = 403 };
 
     private static string? MaskNationalId(string? nationalId)
     {

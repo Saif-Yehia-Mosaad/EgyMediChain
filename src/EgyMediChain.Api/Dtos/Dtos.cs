@@ -586,6 +586,11 @@ public class AddMinistryAdminDto
     public string? Role { get; set; } // MinistryAdmin / MinistryViewer / SuperAdmin
     public string? TemporaryPassword { get; set; }
     public bool? SendResetLink { get; set; }
+
+    // Optional. "Factory" | "Warehouse" | "Pharmacy" | null (or "Ministry") = full access.
+    // Only meaningful when Role is MinistryAdmin or MinistryViewer - a SuperAdmin is always
+    // unscoped regardless of what's sent here.
+    public string? EntityScope { get; set; }
 }
 
 public class AuditLogListItemDto

@@ -1,4 +1,5 @@
 using EgyMediChain.Api.Dtos;
+using EgyMediChain.Api.Common;
 using EgyMediChain.Domain.Entities;
 using EgyMediChain.Domain.Enums;
 using EgyMediChain.Infrastructure.Persistence;
@@ -11,6 +12,7 @@ namespace EgyMediChain.Api.Controllers;
 [ApiController]
 [Route("api/pharmacies")]
 [Authorize(Roles = "SuperAdmin,MinistryAdmin,MinistryViewer")]
+[RequireMinistryScope("Pharmacy")]
 public class PharmaciesController : ControllerBase
 {
     private readonly AppDbContext _db;

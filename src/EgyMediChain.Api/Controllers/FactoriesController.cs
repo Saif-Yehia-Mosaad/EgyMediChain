@@ -1,4 +1,5 @@
 using EgyMediChain.Api.Dtos;
+using EgyMediChain.Api.Common;
 using EgyMediChain.Domain.Entities;
 using EgyMediChain.Domain.Enums;
 using EgyMediChain.Infrastructure.Persistence;
@@ -11,6 +12,7 @@ namespace EgyMediChain.Api.Controllers;
 [ApiController]
 [Route("api/factories")]
 [Authorize(Roles = "SuperAdmin,MinistryAdmin,MinistryViewer")]
+[RequireMinistryScope("Factory")]
 public class FactoriesController : ControllerBase
 {
     private readonly AppDbContext _db;

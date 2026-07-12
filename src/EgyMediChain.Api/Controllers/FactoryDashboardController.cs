@@ -1,4 +1,5 @@
 using EgyMediChain.Api.Dtos;
+using EgyMediChain.Api.Common;
 using EgyMediChain.Domain.Entities;
 using EgyMediChain.Domain.Enums;
 using EgyMediChain.Infrastructure.Persistence;
@@ -14,6 +15,7 @@ namespace EgyMediChain.Api.Controllers;
 [ApiController]
 [Route("api/factory-dashboard/{factoryId:int}")]
 [Authorize(Roles = "FactoryUser,SuperAdmin,MinistryAdmin")]
+[ValidateEntityOwnership("factoryId")]
 public class FactoryDashboardController : ControllerBase
 {
     private readonly AppDbContext _db;
@@ -312,6 +314,26 @@ public class FactoryDashboardController : ControllerBase
         _db.AuditLogs.Add(NewLog(AuditAction.CancelDraftBatch, "Batch", batch.BatchNumber, "Draft", "Cancelled"));
         await _db.SaveChangesAsync();
         return Ok(new { message = "Draft batch cancelled.", status = "Cancelled" });
+    }
+
+    // Only Draft or already-Cancelled batches can be hard-deleted - those are the only states
+    // guaranteed to have no generated unit codes, shipments, or inventory pointing at them.
+    [HttpDelete("batches/{batchId:int}")]
+    public async Task<IActionResult> DeleteBatch(int factoryId, int batchId)
+    {
+        var factory = await GetFactoryAsync(factoryId);
+        if (factory == null) return NotFound(new { message = "Factory not found." });
+
+        var batch = await _db.Batches.FirstOrDefaultAsync(b => b.Id == batchId && b.FactoryId == factoryId);
+        if (batch == null) return NotFound(new { message = "Batch not found for this factory." });
+
+        if (batch.BatchStatus != BatchStatus.Draft && batch.BatchStatus != BatchStatus.Cancelled)
+            return BadRequest(new { message = "Only a Draft or Cancelled batch can be deleted." });
+
+        _db.AuditLogs.Add(NewLog(AuditAction.DeleteDraftBatch, "Batch", batch.BatchNumber, batch.BatchStatus?.ToString(), "Deleted"));
+        _db.Batches.Remove(batch);
+        await _db.SaveChangesAsync();
+        return Ok(new { message = "Batch deleted." });
     }
 
     // ---------------- Shipments (Factory -> Warehouse) ----------------

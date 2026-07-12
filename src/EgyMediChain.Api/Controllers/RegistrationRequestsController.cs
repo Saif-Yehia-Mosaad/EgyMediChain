@@ -345,6 +345,49 @@ public class RegistrationRequestsController : ControllerBase
         return Ok(dto);
     }
 
+    // Only for requests that never became a live entity (Pending / NeedsMoreDocuments / Rejected /
+    // Cancelled). An Approved request is a real Active Factory/Warehouse/Pharmacy - deleting the
+    // *request* on its own would leave an orphaned entity/account, so that case is blocked on purpose.
+    [HttpDelete("{id:int}")]
+    public async Task<IActionResult> Delete(int id)
+    {
+        var r = await _db.RegistrationRequests
+            .Include(x => x.Factory).Include(x => x.Warehouse).Include(x => x.Pharmacy)
+            .Include(x => x.SystemUser).Include(x => x.Documents)
+            .FirstOrDefaultAsync(x => x.Id == id);
+        if (r == null) return NotFound(new { message = "Registration request not found." });
+
+        if (r.RegistrationStatus == RegistrationStatus.Approved)
+            return BadRequest(new { message = "An approved registration is a live entity - suspend/deactivate it instead of deleting the request." });
+
+        _db.AuditLogs.Add(new AuditLog
+        {
+            LogCode = $"LOG-{DateTime.UtcNow:yyyyMMddHHmmss}",
+            UserDisplayName = "Dr. Saif",
+            Role = SystemRole.SuperAdmin,
+            Action = AuditAction.DeleteRegistrationRequest,
+            ResourceType = "RegistrationRequest",
+            ResourceId = r.RequestCode,
+            OldValue = r.RegistrationStatus?.ToString(),
+            NewValue = "Deleted",
+            IpAddress = "127.0.0.1",
+            CreatedAt = DateTime.UtcNow
+        });
+
+        if (r.Documents != null) _db.EntityDocuments.RemoveRange(r.Documents);
+        _db.RegistrationRequests.Remove(r);
+
+        // Only remove the entity/user rows if they never went Active (i.e. they were never
+        // approved through any other path either) - defensive check in case status drifted.
+        if (r.Factory != null && r.Factory.FactoryStatus != FacilityStatus.Active) _db.Factories.Remove(r.Factory);
+        if (r.Warehouse != null && r.Warehouse.WarehouseStatus != FacilityStatus.Active) _db.Warehouses.Remove(r.Warehouse);
+        if (r.Pharmacy != null && r.Pharmacy.PharmacyStatus != FacilityStatus.Active) _db.Pharmacies.Remove(r.Pharmacy);
+        if (r.SystemUser != null && r.SystemUser.IsActive != true) _db.SystemUsers.Remove(r.SystemUser);
+
+        await _db.SaveChangesAsync();
+        return Ok(new { message = "Registration request deleted." });
+    }
+
     [HttpPost("{id:int}/approve")]
     public async Task<IActionResult> Approve(int id)
     {

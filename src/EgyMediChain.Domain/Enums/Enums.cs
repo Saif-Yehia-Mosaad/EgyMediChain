@@ -186,5 +186,11 @@ public enum AuditAction
     // Warehouse / Pharmacy operational
     ReceiveShipment,
     RejectShipment,
-    QuarantineStock
+    QuarantineStock,
+    // Deletions (added for cleanup / delete endpoints)
+    DeleteRegistrationRequest,
+    DeleteUser,
+    DeleteDraftBatch,
+    DeleteAlert
 }
+

@@ -181,6 +181,50 @@ public class AdminController : ControllerBase
         await _db.SaveChangesAsync();
         return Ok(new { message = "All sessions revoked for this user." });
     }
+    // SuperAdmin only (not MinistryAdmin) - this permanently removes an account, so it's
+    // deliberately a narrower permission than the rest of this controller.
+    [Authorize(Roles = "SuperAdmin")]
+    [HttpDelete("users/{id:int}")]
+    public async Task<IActionResult> DeleteUser(int id)
+    {
+        var u = await _db.SystemUsers.Include(x => x.RefreshTokens).FirstOrDefaultAsync(x => x.Id == id);
+        if (u == null) return NotFound(new { message = "User not found." });
+
+        var callerEmail = User.FindFirst(System.Security.Claims.ClaimTypes.Email)?.Value
+            ?? User.FindFirst(System.IdentityModel.Tokens.Jwt.JwtRegisteredClaimNames.Email)?.Value;
+        if (!string.IsNullOrEmpty(callerEmail) && string.Equals(callerEmail, u.Email, StringComparison.OrdinalIgnoreCase))
+            return BadRequest(new { message = "You can't delete your own account while logged in as it." });
+
+        if (u.Role == SystemRole.SuperAdmin)
+        {
+            var otherSuperAdmins = await _db.SystemUsers.CountAsync(x => x.Role == SystemRole.SuperAdmin && x.Id != id);
+            if (otherSuperAdmins == 0)
+                return BadRequest(new { message = "Can't delete the last remaining SuperAdmin account." });
+        }
+
+        if (u.RefreshTokens != null)
+            _db.AuthRefreshTokens.RemoveRange(u.RefreshTokens);
+
+        _db.AuditLogs.Add(new AuditLog
+        {
+            LogCode = $"LOG-{DateTime.UtcNow:yyyyMMddHHmmss}",
+            UserDisplayName = "Dr. Saif",
+            Role = SystemRole.SuperAdmin,
+            Action = AuditAction.DeleteUser,
+            ResourceType = "SystemUser",
+            ResourceId = u.Email,
+            OldValue = u.Role?.ToString(),
+            NewValue = "Deleted",
+            Result = AuditResult.Success,
+            IpAddress = "127.0.0.1",
+            CreatedAt = DateTime.UtcNow
+        });
+
+        _db.SystemUsers.Remove(u);
+        await _db.SaveChangesAsync();
+        return Ok(new { message = "User deleted." });
+    }
+
     [HttpGet("audit-logs")]
     public async Task<ActionResult<PagedResult<AuditLogListItemDto>>> GetAuditLogs(
         [FromQuery] DateTime? from, [FromQuery] DateTime? to,

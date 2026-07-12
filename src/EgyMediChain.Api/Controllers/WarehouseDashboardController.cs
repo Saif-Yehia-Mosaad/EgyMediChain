@@ -1,4 +1,5 @@
 using EgyMediChain.Api.Dtos;
+using EgyMediChain.Api.Common;
 using EgyMediChain.Domain.Entities;
 using EgyMediChain.Domain.Enums;
 using EgyMediChain.Infrastructure.Persistence;
@@ -13,6 +14,7 @@ namespace EgyMediChain.Api.Controllers;
 [ApiController]
 [Route("api/warehouse-dashboard/{warehouseId:int}")]
 [Authorize(Roles = "WarehouseUser,SuperAdmin,MinistryAdmin")]
+[ValidateEntityOwnership("warehouseId")]
 public class WarehouseDashboardController : ControllerBase
 {
     private readonly AppDbContext _db;

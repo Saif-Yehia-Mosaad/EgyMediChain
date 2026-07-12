@@ -19,6 +19,11 @@ public class LoginResponseDto
     public int? EntityId { get; set; }
 }
 
+public class RefreshRequestDto
+{
+    public string? RefreshToken { get; set; }
+}
+
 // ---------------- Overview ----------------
 public class OverviewCardsDto
 {
@@ -820,3 +825,4 @@ public class PharmacyOverviewDto
     public List<InventoryStockListItemDto>? CurrentStockSummary { get; set; }
     public List<AlertListItemDto>? RecentAlerts { get; set; }
 }
+

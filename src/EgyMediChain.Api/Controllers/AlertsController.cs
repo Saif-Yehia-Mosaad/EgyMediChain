@@ -136,6 +136,38 @@ public class AlertsController : ControllerBase
         return Ok(new { message = "Alert status updated.", status = newStatus.ToString() });
     }
 
+    // Ministry only - narrower than the rest of this controller (Factory/Warehouse/Pharmacy users
+    // can view/update their own alerts but shouldn't be able to delete them). Only lets you delete
+    // alerts that are already Resolved or Dismissed, so an active/open alert can never be erased.
+    [Authorize(Roles = "SuperAdmin,MinistryAdmin")]
+    [HttpDelete("{id:int}")]
+    public async Task<IActionResult> Delete(int id)
+    {
+        var a = await _db.Alerts.FindAsync(id);
+        if (a == null) return NotFound(new { message = "Alert not found." });
+
+        if (a.AlertStatus != AlertStatus.Resolved && a.AlertStatus != AlertStatus.Dismissed)
+            return BadRequest(new { message = "Only Resolved or Dismissed alerts can be deleted." });
+
+        _db.AuditLogs.Add(new AuditLog
+        {
+            LogCode = $"LOG-{DateTime.UtcNow:yyyyMMddHHmmss}",
+            UserDisplayName = "Dr. Saif",
+            Role = SystemRole.SuperAdmin,
+            Action = AuditAction.DeleteAlert,
+            ResourceType = "Alert",
+            ResourceId = a.AlertCode,
+            OldValue = a.AlertStatus?.ToString(),
+            NewValue = "Deleted",
+            IpAddress = "127.0.0.1",
+            CreatedAt = DateTime.UtcNow
+        });
+
+        _db.Alerts.Remove(a);
+        await _db.SaveChangesAsync();
+        return Ok(new { message = "Alert deleted." });
+    }
+
     // ---------------- Public Scan Logs ----------------
     [HttpGet("public-scans")]
     public async Task<ActionResult<PagedResult<ScanListItemDto>>> GetPublicScans(

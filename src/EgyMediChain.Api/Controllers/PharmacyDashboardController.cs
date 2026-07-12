@@ -1,4 +1,5 @@
 using EgyMediChain.Api.Dtos;
+using EgyMediChain.Api.Common;
 using EgyMediChain.Domain.Entities;
 using EgyMediChain.Domain.Enums;
 using EgyMediChain.Infrastructure.Persistence;
@@ -14,6 +15,7 @@ namespace EgyMediChain.Api.Controllers;
 [ApiController]
 [Route("api/pharmacy-dashboard/{pharmacyId:int}")]
 [Authorize(Roles = "PharmacyUser,SuperAdmin,MinistryAdmin")]
+[ValidateEntityOwnership("pharmacyId")]
 public class PharmacyDashboardController : ControllerBase
 {
     private readonly AppDbContext _db;

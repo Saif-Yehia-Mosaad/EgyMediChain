@@ -145,6 +145,60 @@ public class FactoriesController : ControllerBase
         return Ok(new PagedResult<BatchListItemDto> { Items = items, Page = page, PageSize = pageSize, TotalCount = total });
     }
 
+    [HttpGet("{id:int}/registration-request")]
+    public async Task<ActionResult<EntityRegistrationRequestRefDto>> GetRegistrationRequest(int id)
+    {
+        var r = await _db.RegistrationRequests
+            .Where(x => x.FactoryId == id)
+            .OrderByDescending(x => x.SubmittedAt)
+            .FirstOrDefaultAsync();
+        if (r == null) return NotFound(new { message = "No registration request found for this factory." });
+
+        return Ok(new EntityRegistrationRequestRefDto
+        {
+            Id = r.Id,
+            RequestCode = r.RequestCode,
+            RegistrationStatus = r.RegistrationStatus?.ToString(),
+            SubmittedAt = r.SubmittedAt
+        });
+    }
+
+    // Same filters as GetAll (search/status), returns a CSV file (opens fine in Excel).
+    // No paging - exports everything matching the filters.
+    [HttpGet("export")]
+    public async Task<IActionResult> Export([FromQuery] string? search, [FromQuery] string? status)
+    {
+        var query = _db.Factories.AsQueryable();
+        if (!string.IsNullOrWhiteSpace(search))
+            query = query.Where(f => f.OfficialFactoryName != null && f.OfficialFactoryName.Contains(search));
+        if (!string.IsNullOrWhiteSpace(status))
+            query = query.Where(f => f.FactoryStatus != null && f.FactoryStatus.ToString() == status);
+
+        var rows = await query.OrderBy(f => f.Id).ToListAsync();
+
+        var sb = new System.Text.StringBuilder();
+        sb.AppendLine("Id,FactoryName,LegalCompanyName,Governorate,City,LicenseExpiryDate,HasColdStorage,HasQualityControlLab,Status,TotalBatches,CreatedAt");
+        foreach (var f in rows)
+        {
+            sb.AppendLine(string.Join(",",
+                f.Id,
+                Csv(f.OfficialFactoryName), Csv(f.LegalCompanyName), Csv(f.Governorate), Csv(f.City),
+                f.LicenseExpiryDate?.ToString("yyyy-MM-dd"), f.HasColdStorage, f.HasQualityControlLab,
+                Csv(f.FactoryStatus?.ToString()), f.TotalBatches, f.CreatedAt?.ToString("yyyy-MM-dd")));
+        }
+
+        var bytes = System.Text.Encoding.UTF8.GetBytes(sb.ToString());
+        return File(bytes, "text/csv", $"factories-{DateTime.UtcNow:yyyyMMdd}.csv");
+    }
+
+    private static string Csv(string? value)
+    {
+        if (string.IsNullOrEmpty(value)) return "";
+        return value.Contains(',') || value.Contains('"')
+            ? "\"" + value.Replace("\"", "\"\"") + "\""
+            : value;
+    }
+
     private static AuditLog Log(AuditAction action, string resourceType, string? resourceId, string? oldVal, string? newVal) => new()
     {
         LogCode = $"LOG-{DateTime.UtcNow:yyyyMMddHHmmss}",

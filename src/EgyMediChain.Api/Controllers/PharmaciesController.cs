@@ -161,6 +161,58 @@ public class PharmaciesController : ControllerBase
         return Ok(new PagedResult<ShipmentSummaryItemDto> { Items = items, Page = page, PageSize = pageSize, TotalCount = total });
     }
 
+    [HttpGet("{id:int}/registration-request")]
+    public async Task<ActionResult<EntityRegistrationRequestRefDto>> GetRegistrationRequest(int id)
+    {
+        var r = await _db.RegistrationRequests
+            .Where(x => x.PharmacyId == id)
+            .OrderByDescending(x => x.SubmittedAt)
+            .FirstOrDefaultAsync();
+        if (r == null) return NotFound(new { message = "No registration request found for this pharmacy." });
+
+        return Ok(new EntityRegistrationRequestRefDto
+        {
+            Id = r.Id,
+            RequestCode = r.RequestCode,
+            RegistrationStatus = r.RegistrationStatus?.ToString(),
+            SubmittedAt = r.SubmittedAt
+        });
+    }
+
+    [HttpGet("export")]
+    public async Task<IActionResult> Export([FromQuery] string? search, [FromQuery] string? status)
+    {
+        var query = _db.Pharmacies.Include(p => p.DefaultWarehouse).AsQueryable();
+        if (!string.IsNullOrWhiteSpace(search))
+            query = query.Where(p => p.OfficialPharmacyName != null && p.OfficialPharmacyName.Contains(search));
+        if (!string.IsNullOrWhiteSpace(status))
+            query = query.Where(p => p.PharmacyStatus != null && p.PharmacyStatus.ToString() == status);
+
+        var rows = await query.OrderBy(p => p.Id).ToListAsync();
+
+        var sb = new System.Text.StringBuilder();
+        sb.AppendLine("Id,PharmacyName,PharmacyType,Governorate,City,DefaultWarehouse,HasColdStorage,LicenseExpiryDate,Status,CreatedAt");
+        foreach (var p in rows)
+        {
+            sb.AppendLine(string.Join(",",
+                p.Id,
+                Csv(p.OfficialPharmacyName), Csv(p.PharmacyType), Csv(p.Governorate), Csv(p.City),
+                Csv(p.DefaultWarehouse?.OfficialWarehouseName), p.HasColdStorage,
+                p.LicenseExpiryDate?.ToString("yyyy-MM-dd"), Csv(p.PharmacyStatus?.ToString()), p.CreatedAt?.ToString("yyyy-MM-dd")));
+        }
+
+        var bytes = System.Text.Encoding.UTF8.GetBytes(sb.ToString());
+        return File(bytes, "text/csv", $"pharmacies-{DateTime.UtcNow:yyyyMMdd}.csv");
+    }
+
+    private static string Csv(string? value)
+    {
+        if (string.IsNullOrEmpty(value)) return "";
+        return value.Contains(',') || value.Contains('"')
+            ? "\"" + value.Replace("\"", "\"\"") + "\""
+            : value;
+    }
+
     private static AuditLog Log(AuditAction action, string resourceType, string? resourceId, string? oldVal, string? newVal) => new()
     {
         LogCode = $"LOG-{DateTime.UtcNow:yyyyMMddHHmmss}",

@@ -87,6 +87,9 @@ public class RegistrationRequestListItemDto
     public string? EntityType { get; set; }
     public string? EntityName { get; set; }
     public string? RepresentativeName { get; set; }
+    // Same person/value as RepresentativeName - added because the frontend's "Submitted By"
+    // column reads more naturally from a field with this name. Both are always equal.
+    public string? SubmittedBy { get; set; }
     public string? Email { get; set; }
     public DateTime? SubmittedAt { get; set; }
     public bool? EmailConfirmed { get; set; }
@@ -220,9 +223,40 @@ public class RegistrationRequestDetailsDto
     public string? RegistrationStatus { get; set; }
     public string? AdminNotes { get; set; }
     public string? RejectionReason { get; set; }
+    public DateTime? InspectionScheduledDate { get; set; }
+    public string? InspectorNotes { get; set; }
     public AccountInfoDto? Account { get; set; }
     public EntityInfoDto? Entity { get; set; }
     public List<DocumentItemDto>? Documents { get; set; }
+    // Flat label/value list - built from Account + Entity so the frontend's ReviewRequestModal
+    // can just iterate one array instead of knowing every field in EntityInfoDto ahead of time.
+    public List<FieldItemDto>? Fields { get; set; }
+}
+
+public class FieldItemDto
+{
+    public string? Label { get; set; }
+    public string? Value { get; set; }
+}
+
+public class ApproveRequestDto
+{
+    public string? AdminNotes { get; set; }
+}
+
+public class RequestInspectionDto
+{
+    public DateTime? ScheduledDate { get; set; }
+    public string? InspectorNotes { get; set; }
+}
+
+// Used by GET /api/factories/{id}/registration-request (and the Warehouse/Pharmacy equivalents)
+public class EntityRegistrationRequestRefDto
+{
+    public int Id { get; set; }
+    public string? RequestCode { get; set; }
+    public string? RegistrationStatus { get; set; }
+    public DateTime? SubmittedAt { get; set; }
 }
 
 public class RejectRequestDto
@@ -376,6 +410,7 @@ public class BatchListItemDto
     public int? OpenAlerts { get; set; }
     public long? UnitCodesCount { get; set; }
     public bool? AvailableForDispatch { get; set; }
+    public DateTime? UpdatedAt { get; set; } // for the "Last Update" column
 }
 
 public class ProductInfoDto

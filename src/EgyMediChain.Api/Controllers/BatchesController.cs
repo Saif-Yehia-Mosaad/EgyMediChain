@@ -1,4 +1,5 @@
 using EgyMediChain.Api.Dtos;
+using EgyMediChain.Api.Common;
 using EgyMediChain.Domain.Entities;
 using EgyMediChain.Domain.Enums;
 using EgyMediChain.Infrastructure.Persistence;
@@ -10,7 +11,12 @@ namespace EgyMediChain.Api.Controllers;
 
 [ApiController]
 [Route("api/batches")]
-[Authorize(Roles = "FactoryUser,SuperAdmin,MinistryAdmin")]
+// Fixed: this controller has no {factoryId} route param and queries ALL factories' batches
+// nationally - it's a Ministry-wide view, not a per-factory one (FactoryUser already has their
+// own batches via FactoryDashboardController, which IS properly scoped to their own factory).
+// Letting FactoryUser call this too would have let them see every other factory's batches.
+[Authorize(Roles = "SuperAdmin,MinistryAdmin,MinistryViewer")]
+[RequireMinistryScope("Factory")]
 public class BatchesController : ControllerBase
 {
     private readonly AppDbContext _db;
@@ -71,7 +77,8 @@ public class BatchesController : ControllerBase
                 BatchStatus = b.BatchStatus.ToString(),
                 SupplyChainStage = b.SupplyChainStage.ToString(),
                 CurrentLocation = b.CurrentLocation,
-                OpenAlerts = b.OpenAlertsCount
+                OpenAlerts = b.OpenAlertsCount,
+                UpdatedAt = b.UpdatedAt
             }).ToListAsync();
 
         return Ok(new PagedResult<BatchListItemDto> { Items = items, Page = page, PageSize = pageSize, TotalCount = total });

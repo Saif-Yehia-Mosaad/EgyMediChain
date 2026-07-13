@@ -198,15 +198,22 @@ public class RegistrationRequestsController : ControllerBase
     }
 
     // status: pending | under-review | needs-more-documents | approved | rejected | cancelled | (empty = all)
+    // entityType: Factory | Warehouse | Pharmacy (empty = all, subject to this account's Ministry scope)
     [HttpGet]
     public async Task<ActionResult<PagedResult<RegistrationRequestListItemDto>>> GetAll(
-        [FromQuery] string? status, [FromQuery] string? search, [FromQuery] int page = 1, [FromQuery] int pageSize = 10)
+        [FromQuery] string? status, [FromQuery] string? entityType, [FromQuery] string? search,
+        [FromQuery] int page = 1, [FromQuery] int pageSize = 10)
     {
         var query = _db.RegistrationRequests.AsQueryable();
 
         var scope = GetCallerEntityScope();
         if (scope != null)
             query = query.Where(r => r.EntityType != null && r.EntityType.ToString() == scope);
+
+        // Explicit filter from the frontend's dropdown - only narrows further within whatever
+        // this account's Ministry scope already allows (can't be used to bypass the scope above).
+        if (!string.IsNullOrWhiteSpace(entityType))
+            query = query.Where(r => r.EntityType != null && r.EntityType.ToString() == entityType);
 
         if (!string.IsNullOrWhiteSpace(status))
         {
@@ -235,6 +242,7 @@ public class RegistrationRequestsController : ControllerBase
                 EntityType = r.EntityType.ToString(),
                 EntityName = r.EntityName,
                 RepresentativeName = r.RepresentativeName,
+                SubmittedBy = r.RepresentativeName,
                 Email = r.Email,
                 SubmittedAt = r.SubmittedAt,
                 EmailConfirmed = r.EmailConfirmed,
@@ -319,6 +327,49 @@ public class RegistrationRequestsController : ControllerBase
             entity.Status = p.PharmacyStatus?.ToString();
         }
 
+        var fields = new List<FieldItemDto>
+        {
+            new() { Label = "Representative Name", Value = r.RepresentativeName },
+            new() { Label = "Email", Value = r.SystemUser?.Email ?? r.Email },
+            new() { Label = "Mobile Number", Value = r.SystemUser?.MobileNumber },
+            new() { Label = "National ID", Value = MaskNationalId(r.SystemUser?.NationalId) },
+            new() { Label = "Governorate", Value = entity.Governorate },
+            new() { Label = "City", Value = entity.City },
+            new() { Label = "District / Area", Value = entity.DistrictArea },
+            new() { Label = "Full Address", Value = entity.FullAddress }
+        };
+
+        if (r.Factory != null)
+        {
+            fields.Add(new() { Label = "Official Factory Name", Value = entity.OfficialFactoryName });
+            fields.Add(new() { Label = "Legal Company Name", Value = entity.LegalCompanyName });
+            fields.Add(new() { Label = "Dosage Forms Produced", Value = entity.DosageFormsProduced });
+            fields.Add(new() { Label = "Factory License Number", Value = entity.FactoryLicenseNumber });
+            fields.Add(new() { Label = "Technical Operating License Number", Value = entity.TechnicalOperatingLicenseNumber });
+            fields.Add(new() { Label = "Commercial Registration Number", Value = entity.CommercialRegistrationNumber });
+            fields.Add(new() { Label = "Tax Card Number", Value = entity.TaxCardNumber });
+            fields.Add(new() { Label = "Has Quality Control Lab", Value = entity.HasQualityControlLab?.ToString() });
+            fields.Add(new() { Label = "Has Finished Goods Store", Value = entity.HasFinishedGoodsStore?.ToString() });
+        }
+        else if (r.Warehouse != null)
+        {
+            fields.Add(new() { Label = "Official Warehouse Name", Value = entity.OfficialWarehouseName });
+            fields.Add(new() { Label = "Warehouse Type", Value = entity.WarehouseType });
+            fields.Add(new() { Label = "Warehouse License Number", Value = entity.WarehouseLicenseNumber });
+            fields.Add(new() { Label = "Has Delivery Service", Value = entity.HasDeliveryService?.ToString() });
+        }
+        else if (r.Pharmacy != null)
+        {
+            fields.Add(new() { Label = "Official Pharmacy Name", Value = entity.OfficialPharmacyName });
+            fields.Add(new() { Label = "Pharmacy Type", Value = entity.PharmacyType });
+            fields.Add(new() { Label = "Default Warehouse", Value = entity.DefaultWarehouseName });
+            fields.Add(new() { Label = "Pharmacy License Number", Value = entity.PharmacyLicenseNumber });
+            fields.Add(new() { Label = "Pharmacist Syndicate ID", Value = entity.PharmacistSyndicateId });
+        }
+
+        fields.Add(new() { Label = "Has Cold Storage", Value = entity.HasColdStorage?.ToString() });
+        fields.Add(new() { Label = "Has Quarantine Area", Value = entity.HasQuarantineArea?.ToString() });
+
         var dto = new RegistrationRequestDetailsDto
         {
             Id = r.Id,
@@ -328,6 +379,8 @@ public class RegistrationRequestsController : ControllerBase
             RegistrationStatus = r.RegistrationStatus?.ToString(),
             AdminNotes = r.AdminNotes,
             RejectionReason = r.RejectionReason,
+            InspectionScheduledDate = r.InspectionScheduledDate,
+            InspectorNotes = r.InspectorNotes,
             Account = r.SystemUser == null ? null : new AccountInfoDto
             {
                 FullName = r.SystemUser.FullName,
@@ -349,7 +402,8 @@ public class RegistrationRequestsController : ControllerBase
                 ReviewedBy = d.ReviewedBy,
                 ReviewedAt = d.ReviewedAt,
                 RejectionReason = d.RejectionReason
-            }).ToList()
+            }).ToList(),
+            Fields = fields
         };
 
         return Ok(dto);
@@ -400,7 +454,7 @@ public class RegistrationRequestsController : ControllerBase
     }
 
     [HttpPost("{id:int}/approve")]
-    public async Task<IActionResult> Approve(int id)
+    public async Task<IActionResult> Approve(int id, [FromBody] ApproveRequestDto? dto)
     {
         var r = await _db.RegistrationRequests
             .Include(x => x.Factory).Include(x => x.Warehouse).Include(x => x.Pharmacy).Include(x => x.SystemUser)
@@ -409,6 +463,7 @@ public class RegistrationRequestsController : ControllerBase
         if (!IsAllowedEntityType(r.EntityType)) return Forbid403();
 
         r.RegistrationStatus = RegistrationStatus.Approved;
+        if (!string.IsNullOrWhiteSpace(dto?.AdminNotes)) r.AdminNotes = dto.AdminNotes;
         if (r.Factory != null) r.Factory.FactoryStatus = FacilityStatus.Active;
         if (r.Warehouse != null) r.Warehouse.WarehouseStatus = FacilityStatus.Active;
         if (r.Pharmacy != null) r.Pharmacy.PharmacyStatus = FacilityStatus.Active;
@@ -440,7 +495,10 @@ public class RegistrationRequestsController : ControllerBase
         return Ok(new { message = "Registration request rejected.", status = "Rejected" });
     }
 
+    // "request-documents" is an alias of "request-more-documents" - same handler, two URLs,
+    // so either naming the frontend already built against will work.
     [HttpPost("{id:int}/request-more-documents")]
+    [HttpPost("{id:int}/request-documents")]
     public async Task<IActionResult> RequestMoreDocuments(int id, [FromBody] RequestMoreDocumentsDto? dto)
     {
         var r = await _db.RegistrationRequests.Include(x => x.SystemUser).Include(x => x.Documents)
@@ -463,6 +521,25 @@ public class RegistrationRequestsController : ControllerBase
         _db.AuditLogs.Add(NewLog(r.SystemUser, AuditAction.UpdateDocumentStatus, "EntityDocument", r.RequestCode, "UnderReview", "NeedsReplacement"));
         await _db.SaveChangesAsync();
         return Ok(new { message = "More documents requested.", status = "NeedsMoreDocuments" });
+    }
+
+    // Doesn't change RegistrationStatus (an inspection can be scheduled at any stage) - just
+    // records when/notes, so the frontend can show "Inspection scheduled for <date>" on top of
+    // whatever status the request is already in.
+    [HttpPost("{id:int}/request-inspection")]
+    public async Task<IActionResult> RequestInspection(int id, [FromBody] RequestInspectionDto? dto)
+    {
+        var r = await _db.RegistrationRequests.Include(x => x.SystemUser).FirstOrDefaultAsync(x => x.Id == id);
+        if (r == null) return NotFound(new { message = "Registration request not found." });
+        if (!IsAllowedEntityType(r.EntityType)) return Forbid403();
+
+        r.InspectionScheduledDate = dto?.ScheduledDate;
+        r.InspectorNotes = dto?.InspectorNotes;
+        r.InspectionRequestedAt = DateTime.UtcNow;
+
+        _db.AuditLogs.Add(NewLog(r.SystemUser, AuditAction.UpdateDocumentStatus, "RegistrationRequest", r.RequestCode, r.RegistrationStatus?.ToString(), "InspectionRequested"));
+        await _db.SaveChangesAsync();
+        return Ok(new { message = "Inspection requested.", scheduledDate = r.InspectionScheduledDate });
     }
 
     [HttpPost("documents/{documentId:int}/status")]

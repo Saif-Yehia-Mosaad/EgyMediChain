@@ -162,6 +162,58 @@ public class WarehousesController : ControllerBase
         return Ok(new PagedResult<ShipmentSummaryItemDto> { Items = items, Page = page, PageSize = pageSize, TotalCount = total });
     }
 
+    [HttpGet("{id:int}/registration-request")]
+    public async Task<ActionResult<EntityRegistrationRequestRefDto>> GetRegistrationRequest(int id)
+    {
+        var r = await _db.RegistrationRequests
+            .Where(x => x.WarehouseId == id)
+            .OrderByDescending(x => x.SubmittedAt)
+            .FirstOrDefaultAsync();
+        if (r == null) return NotFound(new { message = "No registration request found for this warehouse." });
+
+        return Ok(new EntityRegistrationRequestRefDto
+        {
+            Id = r.Id,
+            RequestCode = r.RequestCode,
+            RegistrationStatus = r.RegistrationStatus?.ToString(),
+            SubmittedAt = r.SubmittedAt
+        });
+    }
+
+    [HttpGet("export")]
+    public async Task<IActionResult> Export([FromQuery] string? search, [FromQuery] string? status)
+    {
+        var query = _db.Warehouses.AsQueryable();
+        if (!string.IsNullOrWhiteSpace(search))
+            query = query.Where(w => w.OfficialWarehouseName != null && w.OfficialWarehouseName.Contains(search));
+        if (!string.IsNullOrWhiteSpace(status))
+            query = query.Where(w => w.WarehouseStatus != null && w.WarehouseStatus.ToString() == status);
+
+        var rows = await query.OrderBy(w => w.Id).ToListAsync();
+
+        var sb = new System.Text.StringBuilder();
+        sb.AppendLine("Id,WarehouseName,WarehouseType,Governorate,City,LicenseExpiryDate,HasColdStorage,HasQuarantineArea,HasDeliveryService,Status,CreatedAt");
+        foreach (var w in rows)
+        {
+            sb.AppendLine(string.Join(",",
+                w.Id,
+                Csv(w.OfficialWarehouseName), Csv(w.WarehouseType), Csv(w.Governorate), Csv(w.City),
+                w.LicenseExpiryDate?.ToString("yyyy-MM-dd"), w.HasColdStorage, w.HasQuarantineArea, w.HasDeliveryService,
+                Csv(w.WarehouseStatus?.ToString()), w.CreatedAt?.ToString("yyyy-MM-dd")));
+        }
+
+        var bytes = System.Text.Encoding.UTF8.GetBytes(sb.ToString());
+        return File(bytes, "text/csv", $"warehouses-{DateTime.UtcNow:yyyyMMdd}.csv");
+    }
+
+    private static string Csv(string? value)
+    {
+        if (string.IsNullOrEmpty(value)) return "";
+        return value.Contains(',') || value.Contains('"')
+            ? "\"" + value.Replace("\"", "\"\"") + "\""
+            : value;
+    }
+
     private static AuditLog Log(AuditAction action, string resourceType, string? resourceId, string? oldVal, string? newVal) => new()
     {
         LogCode = $"LOG-{DateTime.UtcNow:yyyyMMddHHmmss}",

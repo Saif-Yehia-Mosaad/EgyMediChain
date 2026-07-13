@@ -48,6 +48,10 @@ public class RegistrationRequest
     public RegistrationStatus? RegistrationStatus { get; set; }
     public string? AdminNotes { get; set; }
     public string? RejectionReason { get; set; }
+    // Added for the "Request Inspection" action - nullable so existing rows are unaffected.
+    public DateTime? InspectionScheduledDate { get; set; }
+    public string? InspectorNotes { get; set; }
+    public DateTime? InspectionRequestedAt { get; set; }
 
     public int? FactoryId { get; set; }
     public Factory? Factory { get; set; }
@@ -381,3 +385,4 @@ public class AuditLog
 
     public Pharmacy? DestinationPharmacy { get; set; }
 }
+

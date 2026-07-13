@@ -84,6 +84,21 @@ public class AdminController : ControllerBase
 
         var tempPassword = string.IsNullOrWhiteSpace(dto?.TemporaryPassword) ? "Temp@12345" : dto!.TemporaryPassword;
 
+        // A SuperAdmin is always unscoped. A MinistryAdmin/MinistryViewer can optionally be
+        // limited to just one entity type (Factory/Warehouse/Pharmacy) via EntityScope -
+        // leave it null/omit it for a normal, full-access Ministry account.
+        EntityKind entityType = EntityKind.Ministry;
+        if (role != SystemRole.SuperAdmin && !string.IsNullOrWhiteSpace(dto?.EntityScope))
+        {
+            entityType = dto!.EntityScope switch
+            {
+                "Factory" => EntityKind.Factory,
+                "Warehouse" => EntityKind.Warehouse,
+                "Pharmacy" => EntityKind.Pharmacy,
+                _ => EntityKind.Ministry
+            };
+        }
+
         var user = new SystemUser
         {
             FullName = dto?.FullName ?? "New Ministry Admin",
@@ -91,7 +106,7 @@ public class AdminController : ControllerBase
             MobileNumber = dto?.MobileNumber,
             NationalId = dto?.NationalId,
             Role = role,
-            EntityType = EntityKind.Ministry,
+            EntityType = entityType,
             EmailConfirmed = false,
             IsActive = true,
             PasswordHash = BCrypt.Net.BCrypt.HashPassword(tempPassword, 12),

@@ -19,20 +19,36 @@ public class AlertsController : ControllerBase
     [HttpGet("counts")]
     public async Task<ActionResult<object>> GetCounts()
     {
+        var scope = GetMinistryEntityScope();
+        var alertsQuery = _db.Alerts.AsQueryable();
+        if (scope != null)
+            alertsQuery = alertsQuery.Where(a => a.EntityType != null && a.EntityType.ToString() == scope);
+
         return Ok(new
         {
-            OpenAlerts = await _db.Alerts.CountAsync(a => a.AlertStatus == AlertStatus.Open),
-            PublicScanLogs = await _db.PublicVerificationScans.CountAsync(),
-            RecallAlerts = await _db.Alerts.CountAsync(a => a.AlertType == AlertType.Recall)
+            OpenAlerts = await alertsQuery.CountAsync(a => a.AlertStatus == AlertStatus.Open),
+            PublicScanLogs = scope == null ? await _db.PublicVerificationScans.CountAsync() : 0,
+            RecallAlerts = await alertsQuery.CountAsync(a => a.AlertType == AlertType.Recall)
         });
     }
 
     // ---------------- Open Alerts ----------------
     [HttpGet]
     public async Task<ActionResult<PagedResult<AlertListItemDto>>> GetAll(
-        [FromQuery] string? status, [FromQuery] string? severity, [FromQuery] int page = 1, [FromQuery] int pageSize = 5)
+        [FromQuery] string? status, [FromQuery] string? severity, [FromQuery] string? entityType,
+        [FromQuery] int page = 1, [FromQuery] int pageSize = 5)
     {
         var query = _db.Alerts.Include(a => a.Batch).AsQueryable();
+
+        // Explicit filter from the frontend's dropdown - only narrows further within whatever
+        // this account's Ministry scope already allows.
+        if (!string.IsNullOrWhiteSpace(entityType))
+            query = query.Where(a => a.EntityType != null && a.EntityType.ToString() == entityType);
+
+        var scope = GetMinistryEntityScope();
+        if (scope != null)
+            query = query.Where(a => a.EntityType != null && a.EntityType.ToString() == scope);
+
         if (!string.IsNullOrWhiteSpace(status))
             query = query.Where(a => a.AlertStatus != null && a.AlertStatus.ToString() == status);
         if (!string.IsNullOrWhiteSpace(severity))
@@ -62,6 +78,11 @@ public class AlertsController : ControllerBase
     public async Task<ActionResult<PagedResult<AlertListItemDto>>> GetRecalls([FromQuery] int page = 1, [FromQuery] int pageSize = 5)
     {
         var query = _db.Alerts.Include(a => a.Batch).Where(a => a.AlertType == AlertType.Recall);
+
+        var scope = GetMinistryEntityScope();
+        if (scope != null)
+            query = query.Where(a => a.EntityType != null && a.EntityType.ToString() == scope);
+
         var total = await query.CountAsync();
         var items = await query.OrderByDescending(a => a.CreatedAt)
             .Skip(Math.Max(0, (page - 1) * pageSize)).Take(pageSize <= 0 ? 5 : pageSize)
@@ -86,6 +107,8 @@ public class AlertsController : ControllerBase
     {
         var a = await _db.Alerts.Include(x => x.Batch).FirstOrDefaultAsync(x => x.Id == id);
         if (a == null) return NotFound(new { message = "Alert not found." });
+        if (!IsAllowedAlertEntityType(a.EntityType)) return Forbid403();
+
         return Ok(new AlertListItemDto
         {
             Id = a.Id,
@@ -106,6 +129,7 @@ public class AlertsController : ControllerBase
     {
         var a = await _db.Alerts.FindAsync(id);
         if (a == null) return NotFound(new { message = "Alert not found." });
+        if (!IsAllowedAlertEntityType(a.EntityType)) return Forbid403();
 
         var old = a.AlertStatus?.ToString();
         var newStatus = (dto?.Status ?? "UnderReview") switch
@@ -145,6 +169,7 @@ public class AlertsController : ControllerBase
     {
         var a = await _db.Alerts.FindAsync(id);
         if (a == null) return NotFound(new { message = "Alert not found." });
+        if (!IsAllowedAlertEntityType(a.EntityType)) return Forbid403();
 
         if (a.AlertStatus != AlertStatus.Resolved && a.AlertStatus != AlertStatus.Dismissed)
             return BadRequest(new { message = "Only Resolved or Dismissed alerts can be deleted." });
@@ -279,5 +304,27 @@ public class AlertsController : ControllerBase
         await _db.SaveChangesAsync();
         return Ok(new { message = "Alert created from scan.", alertCode = alert.AlertCode });
     }
+
+    // Only restricts MinistryAdmin/MinistryViewer accounts that were created with an EntityScope
+    // (see AdminController.AddMinistryAdmin). SuperAdmin and the operational roles (FactoryUser/
+    // WarehouseUser/PharmacyUser) are left exactly as before - unscoped for this controller.
+    private string? GetMinistryEntityScope()
+    {
+        var role = User.FindFirst(System.Security.Claims.ClaimTypes.Role)?.Value;
+        if (role != "MinistryAdmin" && role != "MinistryViewer") return null;
+
+        var scope = User.FindFirst("entityType")?.Value;
+        if (string.IsNullOrEmpty(scope) || scope == "Ministry") return null;
+        return scope;
+    }
+
+    private bool IsAllowedAlertEntityType(EntityKind? type)
+    {
+        var scope = GetMinistryEntityScope();
+        if (scope == null) return true;
+        return type != null && type.ToString() == scope;
+    }
+
+    private ObjectResult Forbid403() => new(new { message = "This account's Ministry scope doesn't include this entity type." }) { StatusCode = 403 };
 }
 
